@@ -9,11 +9,19 @@ server {
 
     listen 80;
     listen [::]:80;
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    #listen 443 ssl http2;
+    #listen [::]:443 ssl http2;
 
-    ssl_certificate /etc/letsencrypt/live/gl.$NGINX_HOSTNAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/gl.$NGINX_HOSTNAME/privkey.pem;
+    #ssl_certificate /etc/letsencrypt/live/gl.$NGINX_HOSTNAME/fullchain.pem;
+    #ssl_certificate_key /etc/letsencrypt/live/gl.$NGINX_HOSTNAME/privkey.pem;
+
+    #####################################################
+    ### FOR ACME CHALLENGES
+    location ^~ /.well-known/acme-challenge/ {
+        alias /var/www/certbot/.well-known/acme-challenge/;
+    }
+    ### END ACME CHALLENGES
+    #####################################################
 
     location /cable {
         proxy_pass  http://greenlight-server;
@@ -73,12 +81,20 @@ server {
 
     listen 80;
     listen [::]:80;
-    listen 443 ssl;
-    listen [::]:443;
+    #listen 443 ssl;
+    #listen [::]:443;
 
     ## Configuration for Letsencrypt SSL Certificate
-    ssl_certificate /etc/letsencrypt/live/kc.$NGINX_HOSTNAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/kc.$NGINX_HOSTNAME/privkey.pem;
+    #ssl_certificate /etc/letsencrypt/live/kc.$NGINX_HOSTNAME/fullchain.pem;
+    #ssl_certificate_key /etc/letsencrypt/live/kc.$NGINX_HOSTNAME/privkey.pem;
+
+    #####################################################
+    ### FOR ACME CHALLENGES
+    location ^~ /.well-known/acme-challenge/ {
+        alias /var/www/certbot/.well-known/acme-challenge/;
+    }
+    ### END ACME CHALLENGES
+    #####################################################
 
     location / {
         proxy_pass  http://keycloak-server;

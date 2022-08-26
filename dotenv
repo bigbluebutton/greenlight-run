@@ -1,22 +1,16 @@
 ### Required when when specific repo or version (other than defaults) are needed
-# GREENLIGHT_DOCKER_IMAGE=bigbluebutton/greenlight:v3
+GREENLIGHT_DOCKER_IMAGE=bigbluebutton/greenlight:v3
 #
-### Optional for postgres when using docker-compose and want to change the default values
-# POSTGRES_USER=
-# POSTGRES_PASSWORD=
-#
-### Optional for init-letsencrypt.sh when using certbot for generating signed SSL certificates
-# LETSENCRYPT_EMAIL=
-# LETSENCRYPT_STAGING=0
-#   Set to 1 if you're testing your setup to avoid hitting request limits
+### Required for init-letsencrypt.sh when using certbot for generating signed SSL certificates
+LETSENCRYPT_EMAIL=
+### Set to 1 if you're testing your setup to avoid hitting Letsencrypt request limits
+LETSENCRYPT_STAGING=0
 #
 ### Optional for development when using different profiles
-# SITES_TEMPLATE=docker
+SITES_TEMPLATE=docker
 # Examples:
 #   docker <default>
 #   local
-
-### Optional if the logs will be handled differently
-# RAILS_LOG_TO_STDOUT=true
-
+#
+### The public domain name that GL3 and keycloak will use, this has to be a valid domain name in the DNS network that resolves to your system 
 DOMAIN_NAME=
