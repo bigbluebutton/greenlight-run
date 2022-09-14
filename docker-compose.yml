@@ -65,6 +65,7 @@ services:
     env_file: ./data/greenlight/.env
     volumes:
       - ./data/greenlight/bin/start:/usr/src/app/bin/start
+      - ./data/greenlight/storage:/usr/src/app/storage
     depends_on:
       - postgres
       - redis
