@@ -69,24 +69,27 @@ services:
       - redis
 
   keycloak:
-    image: jboss/keycloak:16.1.1
+    image: quay.io/keycloak/keycloak:19.0.2
     container_name: keycloak
     restart: unless-stopped
     environment:
-      KEYCLOAK_USER: admin
-      KEYCLOAK_PASSWORD: adminadmin
-      DB_VENDOR: POSTGRES
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: adminadmin
+      KC_DB_URL: postgres
       DB_ADDR: postgres
-      DB_DATABASE: keycloakdb
-      DB_USER: postgres
-      DB_PASSWORD: password
-      PROXY_ADDRESS_FORWARDING: "true"
+      KC_DB: keycloakdb
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: password
+      KC_HOSTNAME_STRICT: false
+      KC_EDGE: proxy
     volumes:
       - ./data/certbot/conf/:/etc/letsencrypt
       - ./data/certbot/conf/live/kc.${DOMAIN_NAME:-xlab.blindside-dev.com}/cert.pem:/etc/x509/https/tls.crt
       - ./data/certbot/conf/live/kc.${DOMAIN_NAME:-xlab.blindside-dev.com}/privkey.pem:/etc/x509/https/tls.key
     depends_on:
       - postgres
+    command:
+      - start-dev --auto-build
 
   #   docker run  --name keycloak --net greenlight-run_default -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=adminadmin -e DB_VENDOR=POSTGRES -e DB_ADDR=postgres -e DB_DATABASE=keycloak -e DB_USER=postgres -e DB_PASSWORD=password jboss/keycloak:16.1.1
   #   https://www.keycloak.org/docs/latest/server_installation/index.html#_setting-up-a-load-balancer-or-proxy
