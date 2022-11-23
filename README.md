@@ -128,7 +128,7 @@ Keep in mind that the port in the template is hard-coded to `3000`, but it can b
 
 E.g.
 ```
-sed -i "s/NGINX_HOSTNAME:.*/NGINX_HOSTNAME:5000/" data/nginx/sites.template-local
+sed -i "s/DOMAIN_NAME:.*/DOMAIN_NAME:5000/" data/nginx/sites.template-local
 ```
 
 When keycloak is initialized, it also needs to be configured by adding a, and then set those values into the `data/greenlight/.env` file.
