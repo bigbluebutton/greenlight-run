@@ -58,9 +58,8 @@ if [[ -z $DOMAIN_NAME ]]; then
   exit 1
 fi
 
-if [[ -z $GL_HOSTNAME ]] && [[ -z $KC_HOSTNAME ]]; then
-  >&2 echo "NO FQDN is set ⛔"
-  >&2 echo "At least one FQDN should be provided to generate a certificate for ❗"
+if [[ -z $GL_HOSTNAME ]]; then
+  >&2 echo "Required \$GL_HOSTNAME is not set ⛔"
   exit 1
 fi
 
@@ -100,7 +99,7 @@ email="$LETSENCRYPT_EMAIL" # Adding a valid address is strongly recommended.
 staging=${LETSENCRYPT_STAGING:-1}
 
 echo "-> Prepared enviroment successfully ✔"
-echo "-> Attempting to issue Let's Encrypt certificates for ${domains[@]} for the email address of '$email' ⏳"
+echo "-> Attempting to issue Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
 echo "-> Let's encrypt certificate files will be stored under '$data_path' ❕"
 echo "-> '$web_root' will be the web root for the HTTP-01 ACME challenge ❕"
 echo
@@ -117,8 +116,7 @@ if [ -d "$data_path" ] && [ "$replaceExisting" -eq 0 ]; then
     fi
 fi
 
-mkdir -p "$data_path"
-mkdir -p "$web_root"
+mkdir -p "$data_path" "$web_root"
 
 # Load TLS parameters:
 if [ ! -e "$data_path/options-ssl-nginx.conf" ] || [ ! -e "$data_path/ssl-dhparams.pem" ]; then
@@ -129,52 +127,47 @@ if [ ! -e "$data_path/options-ssl-nginx.conf" ] || [ ! -e "$data_path/ssl-dhpara
   echo
 fi
 
-# Chicken egg problem:
-echo "### Creating dummy certificates for ${domains[@]} ⏳"
-path="/etc/letsencrypt/live/$domains"
-mkdir -p "$data_path/live/$domains"
+# Chicken and egg problem resolution:
+cert_path="$data_path/live/${domains[0]}"
 
-docker_compose run --rm --entrypoint "\
+if  [ ! -f "$cert_path/fullchain.pem" ] && [ ! -f "$cert_path/privkey.pem" ]; then
+  echo "-> Creating dummy certificate for '${domains[0]}' ⏳"
+  mkdir -p $cert_path
+
   openssl req -x509 -nodes -newkey rsa:2048 -days 1\
-    -keyout '$path/privkey.pem' \
-    -out '$path/fullchain.pem' \
-    -subj '/CN=localhost'" certbot
-echo
+    -keyout "$cert_path/privkey.pem" \
+    -out "$cert_path/fullchain.pem" \
+    -subj "/CN=${domains[0]}"
+  echo
+fi
 
 echo "### Starting nginx ⏳"
 docker_compose up --force-recreate -d nginx
 echo
 
-echo "### Deleting dummy certificate for ${domains[@]} ⏳"
-docker_compose run --rm --entrypoint "\
-  rm -Rf /etc/letsencrypt/live/$domains && \
-  rm -Rf /etc/letsencrypt/archive/$domains && \
-  rm -Rf /etc/letsencrypt/renewal/$domains.conf" certbot
+echo "### Deleting exisiting certificates for '${domains[@]}' ⏳"
+rm -rfv "$data_path/live/" "$data_path/archive/" "$data_path/renewal/"
 echo
 
-
-echo "Requesting Let's Encrypt certificates for ${domains[@]} for the email address of '$email' ⏳"
+echo "Requesting Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
 #Join $domains to -d args
 domain_args=""
 for domain in "${domains[@]}"; do
   domain_args="$domain_args -d $domain"
 done
 
-# Select appropriate email arg
-case "$email" in
-  "") email_arg="--register-unsafely-without-email" ;;
-  *) email_arg="--email $email" ;;
-esac
-
 # Enable staging mode if needed
-if [ $staging != "0" ]; then staging_arg="--staging"; fi
+if [ $staging != "0" ]; then
+  staging_arg="--staging"
+  echo "-> Running in staging mode 🟡"
+fi
 
 docker_compose run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
     $staging_arg \
     $([ "$interactive" -ne 1 ] && echo '--non-interactive') \
-    $email_arg \
     $domain_args \
+    --email $email \
     --rsa-key-size $rsa_key_size \
     --agree-tos \
     --debug-challenges \
@@ -183,3 +176,5 @@ echo
 
 echo "### Reloading nginx..."
 docker_compose exec $([ "$interactive" -ne 1 ] && echo "-T") nginx nginx -s reload
+echo "-> Reloaded nginx ✔"
+echo

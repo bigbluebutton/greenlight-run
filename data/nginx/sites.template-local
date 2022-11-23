@@ -75,12 +75,11 @@ server {
 
     listen 80;
     listen [::]:80;
-    listen 443 ssl;
-    listen [::]:443;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
 
-    ## Configuration for Letsencrypt SSL Certificate
-    ssl_certificate /etc/letsencrypt/live/$KC_HOME.$DOMAIN_NAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$KC_HOME.$DOMAIN_NAME/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/$GL_HOSTNAME.$DOMAIN_NAME/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$GL_HOSTNAME.$DOMAIN_NAME/privkey.pem;
 
     location / {
         proxy_pass  http://keycloak-server;

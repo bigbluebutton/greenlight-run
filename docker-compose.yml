@@ -85,7 +85,7 @@ services:
       PROXY_ADDRESS_FORWARDING: "true"
     volumes:
       - ./data/certbot/conf/:/etc/letsencrypt
-      - ./data/certbot/conf/live/$KC_HOSTNAME.$DOMAIN_NAME/cert.pem:/etc/x509/https/tls.crt
-      - ./data/certbot/conf/live/$KC_HOSTNAME.$DOMAIN_NAME/privkey.pem:/etc/x509/https/tls.key
+      - ./data/certbot/conf/live/$GL_HOSTNAME.$DOMAIN_NAME/cert.pem:/etc/x509/https/tls.crt
+      - ./data/certbot/conf/live/$GL_HOSTNAME.$DOMAIN_NAME/privkey.pem:/etc/x509/https/tls.key
     depends_on:
       - postgres
