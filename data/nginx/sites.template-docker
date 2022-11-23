@@ -5,6 +5,7 @@ upstream greenlight-server {
 }
 
 server {
+    include    /etc/nginx/sites-common/acme_challenge.conf;
     server_name $GL_HOSTNAME.$DOMAIN_NAME;
 
     listen 80;
@@ -71,6 +72,7 @@ upstream keycloak-server {
 }
 
 server {
+    include    /etc/nginx/sites-common/acme_challenge.conf;
     server_name $KC_HOSTNAME.$DOMAIN_NAME;
 
     listen 80;

@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./log/nginx/:/var/log/nginx
-      - ./data/nginx/sites-common:/etc/nginx/sites-common
+      - ./data/nginx/sites-common/:/etc/nginx/sites-common
       - ./data/nginx/sites.template-$SITES_TEMPLATE:/etc/nginx/sites.template
       - ./data/certbot/conf/:/etc/letsencrypt
       - ./data/certbot/www/:/var/www/certbot
