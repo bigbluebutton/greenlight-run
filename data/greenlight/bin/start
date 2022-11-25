@@ -9,14 +9,14 @@ echo "Web app starting on port: $PORT"
 db_create="$(RAILS_ENV=$RAILS_ENV bundle exec rake db:create 2>&1)"
 echo $db_create
 
-if [[ $db_create == *"already exists"* ]]; then
-  echo ">>> Database migration"
-  bundle exec rake db:migrate:with_data
-else
+rails assets:precompile
+
+if [[ $db_create != *"already exists"* ]]; then
   echo ">>> Database initialization"
   bundle exec rake db:schema:load
 fi
 
-rails assets:precompile
+echo ">>> Database migration"
+bundle exec rake db:migrate:with_data
 
 rails s -b 0.0.0.0 -p $PORT
