@@ -152,6 +152,7 @@ fi
 echo "### Starting nginx ⏳"
 docker_compose up --force-recreate -d nginx
 catch_error "Failed to start NGINX ⛔"
+echo "-> Started nginx ✔"
 echo
 
 echo "### Deleting exisiting certificates for '${domains[@]}' ⏳"
