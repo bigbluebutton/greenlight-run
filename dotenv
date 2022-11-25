@@ -1,8 +1,13 @@
 ### Required when when specific repo or version (other than defaults) are needed
 GREENLIGHT_DOCKER_IMAGE=bigbluebutton/greenlight:v3
 #
-### Keycloak image:
-KEYCLOAK_DOCKER_IMAGE=jboss/keycloak:16.1.1
+### Keycloak image to use:
+# Note: the configurations provided in docker-compose is for the legacy WildFly distribution of keycloak.
+# Therefore, it will not work with the new distribution that is now powered by Quarkus.
+# Visit the https://quay.io/repository/keycloak/keycloak for a full list of the official legacy images (those with tags suffixed with '-legacy').
+# OR, kindly follow the official docs on how to migrate to the new distribution.
+#
+KEYCLOAK_DOCKER_IMAGE=quay.io/keycloak/keycloak:19.0.3-legacy
 #
 ### Used by init-letsencrypt.sh when generating SSL certificates.
 LETSENCRYPT_EMAIL=

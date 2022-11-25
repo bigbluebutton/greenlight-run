@@ -71,7 +71,7 @@ services:
       - redis
 
   keycloak:
-    image: $KEYCLOAK_DOCKER_IMAGE
+    image: ${KEYCLOAK_DOCKER_IMAGE:-quay.io/keycloak/keycloak:19.0.3-legacy}
     container_name: keycloak
     restart: unless-stopped
     environment:
