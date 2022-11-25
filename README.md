@@ -112,16 +112,6 @@ To replace any exisiting certificates, please run:
 ./init-letsencrypt.sh -n -r
 ```
 
-The script initially will run in staging mode to avoid reaching the rate limit.
-After a succssful staging, kindly run:
-```
-sed -i "s/LETSENCRYPT_STAGING=1/LETSENCRYPT_STAGING=0/" .env
-```
-And re-run the script:
-```
-./init-letsencrypt.sh -n -r
-```
-
 Congrats on your certificates!
 
 Now start the services.

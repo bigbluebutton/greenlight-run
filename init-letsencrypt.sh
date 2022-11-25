@@ -100,7 +100,6 @@ rsa_key_size=4096
 data_path="./data/certbot/conf"
 web_root="./data/certbot/www"
 email="$LETSENCRYPT_EMAIL" # Adding a valid address is strongly recommended.
-staging=${LETSENCRYPT_STAGING:-1}
 
 echo "-> Prepared enviroment successfully ✔"
 echo "-> Attempting to issue Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
@@ -159,37 +158,45 @@ echo "### Deleting exisiting certificates for '${domains[@]}' ⏳"
 rm -rfv "$data_path/live/" "$data_path/archive/" "$data_path/renewal/"
 echo
 
-echo "Requesting Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
-#Join $domains to -d args
+echo "### Requesting Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
+
 domain_args=""
 for domain in "${domains[@]}"; do
   domain_args="$domain_args -d $domain"
 done
 
-# Enable staging mode if needed
-if [ $staging != "0" ]; then
-  staging_arg="--staging"
-  echo "-> Running in staging mode 🟡"
-fi
+# Generating certificates
+for staging in 1 0; do
+  if [ $staging != "0" ]; then
+    echo "-> Running in staging mode [Rehearsal] 🟡"
+  else
+    echo "-> Rehearsal passed ✔"
+    echo "-> One more step to go ❕"
+    echo "-> Generating production certificates for '${domains[@]}' ⏳"
+  fi
 
-docker_compose run --rm --entrypoint "\
-  certbot certonly --webroot -w /var/www/certbot \
-    $staging_arg \
-    $([ "$interactive" -ne 1 ] && echo '--non-interactive') \
-    $domain_args \
-    --email $email \
-    --rsa-key-size $rsa_key_size \
-    --agree-tos \
-    --debug-challenges \
-    --force-renewal" certbot
+  docker_compose run --rm --entrypoint "\
+    certbot certonly --webroot -w /var/www/certbot \
+      $([ "$staging" -eq 1 ] && echo '--staging') \
+      $([ "$interactive" -ne 1 ] && echo '--non-interactive') \
+      $domain_args \
+      --email $email \
+      --rsa-key-size $rsa_key_size \
+      --agree-tos \
+      --debug-challenges \
+      --force-renewal" certbot
 
-catch_error "Failed to generate certificates ⛔"
-echo
+  catch_error "Failed to generate certificates ⛔"
+  echo
 
-echo "### Reloading nginx..."
-docker_compose exec $([ "$interactive" -ne 1 ] && echo "-T") nginx nginx -s reload
-catch_error "Failed to reload NGINX ⛔"
+  echo "### Reloading nginx..."
+  docker_compose exec $([ "$interactive" -ne 1 ] && echo "-T") nginx nginx -s reload
+  catch_error "Failed to reload NGINX ⛔"
 
-echo "-> Reloaded nginx ✔"
-echo "DONE ✔"
-echo
+  echo "-> Reloaded nginx ✔"
+  echo "DONE ✔"
+  echo
+done
+
+echo "You're all set, Bye ❕"
+

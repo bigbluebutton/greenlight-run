@@ -11,12 +11,9 @@ KEYCLOAK_DOCKER_IMAGE=quay.io/keycloak/keycloak:19.0.3-legacy
 #
 ### Used by init-letsencrypt.sh when generating SSL certificates.
 LETSENCRYPT_EMAIL=
-### Set to 1 if you're testing your setup to avoid hitting Letsencrypt rate limits
-LETSENCRYPT_STAGING=1
 #
 ### The sites template nginx will use, for production leave as is.
 SITES_TEMPLATE=docker
-
 #
 ### The Greenlight instance hostname that with the $DOMAIN_NAME forms its FQDN:
 GL_HOSTNAME=gl
