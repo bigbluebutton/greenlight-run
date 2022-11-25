@@ -8,12 +8,9 @@ services:
     volumes:
       - ./data/postgres/14/database_data:/var/lib/postgresql/data
     environment:
-      - PGUSER=postgres
-      - PGPASSWORD=password
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
   redis:
     image: redis:6.2-alpine
@@ -23,7 +20,7 @@ services:
       - ./data/redis/database_data:/data
       - ./data/redis/conf/redis.conf.template:/usr/local/etc/redis/redis.conf.template
       - ./data/certbot/conf/:/etc/letsencrypt
-    command: /bin/sh -c "sed -e 's/$$HOSTNAME/redis.${DOMAIN_NAME:-xlab.blindside-dev.com}/' /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf && exec redis-server --appendonly yes"
+    command: /bin/sh -c "sed -e 's/$$HOSTNAME/redis.$DOMAIN_NAME/' /usr/local/etc/redis/redis.conf.template > /usr/local/etc/redis/redis.conf && exec redis-server --appendonly yes"
 
   nginx:
     image: nginx:1.23
@@ -31,19 +28,21 @@ services:
     restart: unless-stopped
     volumes:
       - ./log/nginx/:/var/log/nginx
-      - ./data/nginx/sites-common:/etc/nginx/sites-common
-      - ./data/nginx/sites.template-${SITES_TEMPLATE:-docker}:/etc/nginx/sites.template
+      - ./data/nginx/sites-common/:/etc/nginx/sites-common
+      - ./data/nginx/sites.template-$SITES_TEMPLATE:/etc/nginx/sites.template
       - ./data/certbot/conf/:/etc/letsencrypt
       - ./data/certbot/www/:/var/www/certbot
     ports:
       - "80:80"
       - "443:443"
     environment:
-      - NGINX_HOSTNAME=${DOMAIN_NAME:-xlab.blindside-dev.com}
+      - DOMAIN_NAME=$DOMAIN_NAME
+      - GL_HOSTNAME=$GL_HOSTNAME
+      - KC_HOSTNAME=$KC_HOSTNAME
     depends_on:
       - greenlight
       - keycloak
-    command: /bin/bash -c "envsubst '$$NGINX_HOSTNAME' < /etc/nginx/sites.template > /etc/nginx/conf.d/default.conf && while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
+    command: /bin/bash -c "envsubst '$$DOMAIN_NAME,$$GL_HOSTNAME,$$KC_HOSTNAME' < /etc/nginx/sites.template > /etc/nginx/conf.d/default.conf && while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
 
   certbot:
     image: certbot/certbot
@@ -53,10 +52,12 @@ services:
       - ./data/certbot/conf/:/etc/letsencrypt
       - ./data/certbot/www/:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx
 
   greenlight:
     entrypoint: [bin/start]
-    image: ${GREENLIGHT_DOCKER_IMAGE:-bigbluebutton/greenlight:v3}
+    image: $GREENLIGHT_DOCKER_IMAGE
     container_name: greenlight
     restart: unless-stopped
     logging:
@@ -64,30 +65,27 @@ services:
     env_file: ./data/greenlight/.env
     volumes:
       - ./data/greenlight/bin/start:/usr/src/app/bin/start
+      - ./data/greenlight/storage:/usr/src/app/storage
     depends_on:
       - postgres
       - redis
 
   keycloak:
-    image: jboss/keycloak:16.1.1
+    image: ${KEYCLOAK_DOCKER_IMAGE:-quay.io/keycloak/keycloak:19.0.3-legacy}
     container_name: keycloak
     restart: unless-stopped
     environment:
       KEYCLOAK_USER: admin
-      KEYCLOAK_PASSWORD: adminadmin
+      KEYCLOAK_PASSWORD: $KEYCLOAK_PASSWORD
       DB_VENDOR: POSTGRES
       DB_ADDR: postgres
       DB_DATABASE: keycloakdb
       DB_USER: postgres
-      DB_PASSWORD: password
+      DB_PASSWORD: $POSTGRES_PASSWORD
       PROXY_ADDRESS_FORWARDING: "true"
     volumes:
       - ./data/certbot/conf/:/etc/letsencrypt
-      - ./data/certbot/conf/live/kc.${DOMAIN_NAME:-xlab.blindside-dev.com}/cert.pem:/etc/x509/https/tls.crt
-      - ./data/certbot/conf/live/kc.${DOMAIN_NAME:-xlab.blindside-dev.com}/privkey.pem:/etc/x509/https/tls.key
+      - ./data/certbot/conf/live/$GL_HOSTNAME.$DOMAIN_NAME/cert.pem:/etc/x509/https/tls.crt
+      - ./data/certbot/conf/live/$GL_HOSTNAME.$DOMAIN_NAME/privkey.pem:/etc/x509/https/tls.key
     depends_on:
       - postgres
-
-  #   docker run  --name keycloak --net greenlight-run_default -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=adminadmin -e DB_VENDOR=POSTGRES -e DB_ADDR=postgres -e DB_DATABASE=keycloak -e DB_USER=postgres -e DB_PASSWORD=password jboss/keycloak:16.1.1
-  #   https://www.keycloak.org/docs/latest/server_installation/index.html#_setting-up-a-load-balancer-or-proxy
-  #   https://stackoverflow.com/questions/47181821/using-keycloak-behind-a-reverse-proxy-could-not-open-admin-loginpage-because-mi
