@@ -1,6 +1,6 @@
 #!/bin/bash
 
-## Scrip based on https://github.com/wmnnd/nginx-certbot
+## Script based on https://github.com/wmnnd/nginx-certbot
 ## https://pentacent.medium.com/nginx-and-lets-encrypt-with-docker-in-less-than-5-minutes-b4b8a60d3a71
 
 # Script functions declaration:
@@ -15,12 +15,16 @@ usage() {
 
 docker_compose() {
   if [[ $composePlugin == 1 ]]; then
-    docker compose "$@"
+    docker compose "$@" 2> /dev/null # Redirecting stdout to null to suppress docker outputs.
   else
-    docker-compose "$@"
+    docker-compose "$@" 2> /dev/null # Redirecting stdout to null to suppress docker outputs.
   fi
 
   return $?
+}
+
+catch_error() {
+  [ ! $? -eq 0 ] && >&2 echo "$1" && exit 1
 }
 
 interactive=1
@@ -100,6 +104,7 @@ staging=${LETSENCRYPT_STAGING:-1}
 
 echo "-> Prepared enviroment successfully ✔"
 echo "-> Attempting to issue Let's Encrypt certificates for '${domains[@]}' for the email address of '$email' ⏳"
+echo
 echo "-> Let's encrypt certificate files will be stored under '$data_path' ❕"
 echo "-> '$web_root' will be the web root for the HTTP-01 ACME challenge ❕"
 echo
@@ -122,7 +127,9 @@ mkdir -p "$data_path" "$web_root"
 if [ ! -e "$data_path/options-ssl-nginx.conf" ] || [ ! -e "$data_path/ssl-dhparams.pem" ]; then
   echo "### Downloading recommended nginx TLS parameters ⏳"
   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "$data_path/options-ssl-nginx.conf"
+  catch_error "Failed to download recommended TLS parameter 'options-ssl-nginx.conf' ⛔"
   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "$data_path/ssl-dhparams.pem"
+  catch_error "Failed to download recommended TLS parameter 'ssl-dhparams.pem' ⛔"
   echo "-> Downloaded recommended nginx  TLS parameters ✔"
   echo
 fi
@@ -133,6 +140,7 @@ cert_path="$data_path/live/${domains[0]}"
 if  [ ! -f "$cert_path/fullchain.pem" ] && [ ! -f "$cert_path/privkey.pem" ]; then
   echo "-> Creating dummy certificate for '${domains[0]}' ⏳"
   mkdir -p $cert_path
+  rm -rfv $cert_path/* # In case of having directories as cert files, caused by running Keycloak before running this script.
 
   openssl req -x509 -nodes -newkey rsa:2048 -days 1\
     -keyout "$cert_path/privkey.pem" \
@@ -143,6 +151,7 @@ fi
 
 echo "### Starting nginx ⏳"
 docker_compose up --force-recreate -d nginx
+catch_error "Failed to start NGINX ⛔"
 echo
 
 echo "### Deleting exisiting certificates for '${domains[@]}' ⏳"
@@ -172,9 +181,14 @@ docker_compose run --rm --entrypoint "\
     --agree-tos \
     --debug-challenges \
     --force-renewal" certbot
+
+catch_error "Failed to generate certificates ⛔"
 echo
 
 echo "### Reloading nginx..."
 docker_compose exec $([ "$interactive" -ne 1 ] && echo "-T") nginx nginx -s reload
+catch_error "Failed to reload NGINX ⛔"
+
 echo "-> Reloaded nginx ✔"
+echo "DONE ✔"
 echo
