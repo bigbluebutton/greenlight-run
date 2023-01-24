@@ -9,7 +9,6 @@ elif docker-compose version &> /dev/null; then
   echo "-> Detected docker-compose utility ✔"
 else
   >&2 echo 'No "docker-compose" or "docker compose" is installed ⛔'
-  exit 1
 fi
 
 if [[ ! -f ./.env ]]; then
