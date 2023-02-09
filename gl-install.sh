@@ -70,6 +70,7 @@ main() {
   CR_TMPFILE=$(mktemp /tmp/carriage-return.XXXXXX)
   echo "\n" > $CR_TMPFILE
 
+  # Eager checks and assertions.
   check_root
   check_ubuntu 20.04
   need_x64
@@ -116,8 +117,21 @@ main() {
     esac
   done
 
+  # Meeting requirements.
   if [ -z "$HOST" ] || [ -z "$EMAIL" ] ; then
     err "You must provide a FQDN and an email address to generate a certificate."
+  fi
+
+  local bbb_detected_err="This deployment installs Greenlight without BigBlueButton if planning to install both on the same system then please use https://github.com/bigbluebutton/bbb-install to instead"
+
+  if [ "${BIGBLUEBUTTON[0]}" == "$HOST" ]; then
+    say "Your FQDN match that of the BigBlueButton server, are you willing to install Greenlight with BigBlueButton on this system?"
+    err "$bbb_detected_err."
+  fi
+
+  if dpkg -l | grep -q bbb; then
+    say "BigBlueButton modules has been detected on this system:" 
+    err "$bbb_detected_err."
   fi
 
   check_host "$HOST"
@@ -295,7 +309,7 @@ install_greenlight_v3(){
   local PGPASSWORD=$(openssl rand -hex 24) # Postgres user password.
   local RSTXADDR=redis:6379
 
-  if [[ -n $BIGBLUEBUTTON ]]; then
+  if [ -n "$BIGBLUEBUTTON" ]; then
     # BigBlueButton server configuration.
     local BIGBLUEBUTTON_ENDPOINT="https://${BIGBLUEBUTTON[0]}/bigbluebutton/api"
     local BIGBLUEBUTTON_SECRET=${BIGBLUEBUTTON[1]}
