@@ -67,6 +67,9 @@ main() {
   LETS_ENCRYPT_OPTIONS="--webroot --non-interactive"
   SOURCES_FETCHED=false
   GL3_DIR=~/greenlight-v3
+  ACCESS_LOG_DEST=/var/log/nginx
+  NGINX_FILES_DEST=/etc/greenlight/nginx
+  ASSETS_DEST=/var/www/greenlight-default/assets
   CR_TMPFILE=$(mktemp /tmp/carriage-return.XXXXXX)
   echo "\n" > $CR_TMPFILE
 
@@ -117,32 +120,55 @@ main() {
     esac
   done
 
-  # Meeting requirements.
+  check_env # Meeting requirements.
+
+  say "Checks passed, installing/upgrading Greenlight!"
+
+  apt-get update
+  apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" dist-upgrade
+  
+  install_ssl
+  install_greenlight_v3
+
+  apt-get auto-remove -y
+  say "DONE ^^"
+}
+
+check_env() {
+  # Required ARGS
   if [ -z "$HOST" ] || [ -z "$EMAIL" ] ; then
     err "You must provide a FQDN and an email address to generate a certificate."
   fi
 
   local bbb_detected_err="This deployment installs Greenlight without BigBlueButton if planning to install both on the same system then please use https://github.com/bigbluebutton/bbb-install to instead"
 
+  # Detecting BBB on the system
   if [ "${BIGBLUEBUTTON[0]}" == "$HOST" ]; then
     say "Your FQDN match that of the BigBlueButton server, are you willing to install Greenlight with BigBlueButton on this system?"
     err "$bbb_detected_err."
   fi
 
   if dpkg -l | grep -q bbb; then
-    say "BigBlueButton modules has been detected on this system:" 
+    say "BigBlueButton modules has been detected on this system!" 
     err "$bbb_detected_err."
   fi
 
+  # Possible conflicts on setup.
+  if [ ! -d "$GL3_DIR" ]; then
+    # Conflict detection of existent nginx on the system not installed by this script (possible collision with other applications).
+    if dpkg -s nginx 1> /dev/null 2>&1; then
+      say "Nginx is already installed on this system by another mean, this deployment may impact your workload!"
+      err "Remove and cleanup nginx configurations on this system or kindly consider using a clean enviroment before proceeding."
+    fi
+
+    # Conflict detection of required ports being already in use.
+    if check_ports_listen "80|443|5050"; then
+      say "Some required ports are already in use by another application!"
+      err "Make sure to clear out the required ports (TCP 80, 443, 5050) if possible or kindly consider using a clean enviroment before proceeding."
+    fi
+  fi
+
   check_host "$HOST"
-
-  apt-get update
-  apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" dist-upgrade
-  
-  install_greenlight_v3
-
-  apt-get auto-remove -y
-  say "DONE ^^"
 }
 
 say() {
@@ -169,10 +195,22 @@ need_x64() {
 }
 
 wait_443() {
-  echo "Waiting for port 443 to clear "
-  # ss fields 4 and 6 are Local Address and State
-  while ss -ant | awk '{print $4, $6}' | grep TIME_WAIT | grep -q ":443"; do sleep 1; echo -n '.'; done
+  check_ports_clearing 443 && say "Waiting for port 443 to clear "
+
+  while check_ports_clearing 443; do sleep 1; echo -n '.'; done
   echo
+}
+
+check_ports_listen() {
+  local pattern=${1:-80|443}
+
+  ss -lnt | awk '{print $4}' | egrep -q "$pattern"
+}
+
+check_ports_clearing() {
+  local pattern=${1:-80|443}
+
+  ss -ant | grep TIME-WAIT | awk '{print $4}' | egrep -q "$pattern"
 }
 
 get_IP() {
@@ -269,7 +307,7 @@ check_host() {
     DIG_IP=$(dig +short "$1" | grep '^[.0-9]*$' | tail -n1)
     if [ -z "$DIG_IP" ]; then err "Unable to resolve $1 to an IP address using DNS lookup.";  fi
     get_IP "$1"
-    if [ "$DIG_IP" != "$IP" ]; then err "DNS lookup for $1 resolved to $DIG_IP but didn't match local $IP."; fi
+    if [ "$DIG_IP" != "$IP" ]; then err "DNS lookup for $1 resolved to $DIG_IP but didn't match this system $IP."; fi
 }
 
 # This function will install the latest official version of greenlight-v3 and set it as the hosting Bigbluebutton default frontend or update greenlight-v3 if installed.
@@ -341,10 +379,10 @@ install_greenlight_v3(){
   sed -i "s|^\([ \t-]*POSTGRES_PASSWORD\)\(=[ \t]*\)$|\1=$PGPASSWORD|g" $GL3_DIR/docker-compose.yml
 
   # Placing greenlight-v3 nginx file, this will enable greenlight-v3 as your Bigbluebutton frontend (bbb-fe).
-  #docker run --rm --entrypoint sh $GL_IMG_REPO -c 'cat greenlight-v3.nginx' > /usr/share/bigbluebutton/nginx/greenlight-v3.nginx && say "added greenlight-v3 nginx file"
+  docker run --rm --entrypoint sh $GL_IMG_REPO -c 'cat greenlight-v3.nginx' > $NGINX_FILES_DEST/greenlight-v3.nginx && say "added greenlight-v3 nginx file"
 
-  #nginx -qt || err 'greenlight-v3 failed to install due to nginx tests failing to pass - if using the official image then please contact the maintainers.'
-  #nginx -qs reload && say 'greenlight-v3 was successfully configured'
+  nginx -qt || err 'greenlight-v3 failed to install due to nginx tests failing to pass - if using the official image then please contact the maintainers.'
+  nginx -qs reload && say 'greenlight-v3 was successfully configured'
 
   # Eager pulling images.
   say "pulling latest greenlight-v3 services images..."
@@ -360,8 +398,46 @@ install_greenlight_v3(){
   say "starting greenlight-v3..."
   docker-compose -f $GL3_DIR/docker-compose.yml up -d
   sleep 5
-  say "greenlight-v3 is ready, You can VISIT: http://$HOST/ after BBB checks complete!"
+  say "greenlight-v3 is ready, You can VISIT: http://$HOST/ !"
   return 0;
+}
+
+install_ssl() {
+  need_pkg nginx
+
+  mkdir -p $ACCESS_LOG_DEST $NGINX_FILES_DEST $ASSETS_DEST
+
+  if [ ! -f /etc/nginx/sites-available/greenlight ]; then
+          cat <<HERE > /etc/nginx/sites-available/greenlight
+server_tokens off;
+server {
+  listen 80;
+  listen [::]:80;
+  server_name $HOST;
+
+  access_log  $ACCESS_LOG_DEST/greenlight.access.log;
+
+  # Greenlight landing page.
+  location / {
+    root   $ASSETS_DEST;
+    try_files \$uri @bbb-fe;
+  }
+
+  include $NGINX_FILES_DEST/*.nginx;
+}
+
+HERE
+  fi
+
+  if [ ! -f /etc/nginx/sites-enabled/greenlight ]; then
+    ln -s /etc/nginx/sites-available/greenlight /etc/nginx/sites-enabled/greenlight
+  fi
+
+  if [ -f /etc/nginx/sites-enabled/default ]; then
+    rm -v /etc/nginx/sites-enabled/default
+  fi
+
+  systemctl reload nginx
 }
 
 # Given a container name as $1, this function will check if there's a match for that name in the list of running docker containers on the system.
