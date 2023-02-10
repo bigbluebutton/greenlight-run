@@ -41,9 +41,18 @@ USAGE:
 
 OPTIONS (install Greenlight):
 
-  -s <hostname>          Configure server with <hostname> (required)
-  -e <email>             Email for Let's Encrypt certbot (required)
-  -b <hostname>:<secret> The BigBlueButton server accessible on <hostname> with secret <secret> (Defaults to our demo server, do not use for production).
+  -s <hostname>          Configure server with <hostname> (Required)
+
+  -e <email>             Email for Let's Encrypt certbot (Required, if -d is omitted)
+                          * Cannot be used when -d is used.
+
+  -b <hostname>:<secret> The BigBlueButton server to be used that is accessible on <hostname> with secret <secret> (Optional)
+                          * If omitted, defaults to our public BigBlueButton testing server, use it for testing purposes ONLY, DO NOT use for production!
+
+  -d                     Skip SSL certificates generation (Required, if -e is omitted).
+                          * Used to provide certificate files skipping the auto generation using Let's encrypt. 
+                            Certificate files to be used must be named fullchain.pem and privkey.pem and must be placed in /local/certs/.
+                          * Cannot be used when -e is used.
 
   -h                     Print help
 
@@ -53,6 +62,10 @@ Sample options for setup a Greenlight 3.x server with a publicly signed (by Let'
 of info@example.com that uses a BigBlueButton server at bbb.example.com with secret SECRET: 
 
     -s www.example.com -e info@example.com -b bbb.example.com:SECRET
+
+Sample options for setup a Greenlight 3.x server with pre-owned SSL certificates for a FQDN of www.example.com that uses a BigBlueButton server at bbb.example.com with secret SECRET: 
+
+    -b bbb.example.com:SECRET -d
 
 SUPPORT:
          Community: https://groups.google.com/g/bigbluebutton-greenlight
@@ -78,7 +91,7 @@ main() {
   check_ubuntu 20.04
   need_x64
 
-  while builtin getopts "s:e:b:h" opt "${@}"; do
+  while builtin getopts "s:e:b:hd" opt "${@}"; do
 
     case $opt in
       h)
@@ -109,7 +122,10 @@ main() {
         fi
 
         IFS=: BIGBLUEBUTTON=($BIGBLUEBUTTON) IFS=' ' # Making BIGBLUEBUTTON an array, first element is the BBB hostname and the second is the BBB secret.
-        ;;  
+        ;;
+      d)
+        PROVIDED_CERTIFICATE=true
+        ;;      
       :)
         err "Missing option argument for -$OPTARG"
         ;;
@@ -136,15 +152,23 @@ main() {
 
 check_env() {
   # Required ARGS
-  if [ -z "$HOST" ] || [ -z "$EMAIL" ] ; then
-    err "You must provide a FQDN and an email address to generate a certificate."
+  if [ -z "$HOST" ]; then
+    err "Missing required ARG, You must provide the -s <FQDN>; FQDN must point to this system public IP that Greenlight will be accessible through."
   fi
 
-  local bbb_detected_err="This deployment installs Greenlight without BigBlueButton if planning to install both on the same system then please use https://github.com/bigbluebutton/bbb-install to instead"
+  if [ -n "$PROVIDED_CERTIFICATE" ] && [ -n "$EMAIL" ]; then
+    err "Illegal usage of options, either use -d to provide your already generated certificates OR use -e <EMAIL> to have this script generate one for you."
+  fi
+
+  if [ -z "$PROVIDED_CERTIFICATE" ] && [ -z "$EMAIL" ]; then
+    err "Missing required ARG, You must provide the -e <EMAIL> to auto generate a certificate OR use -d to include your own files skipping issuing them by the script."
+  fi
+
+  local bbb_detected_err="This deployment installs Greenlight without BigBlueButton if planning to install both on the same system then please follow https://github.com/bigbluebutton/bbb-install instead."
 
   # Detecting BBB on the system
   if [ "${BIGBLUEBUTTON[0]}" == "$HOST" ]; then
-    say "Your FQDN match that of the BigBlueButton server, are you willing to install Greenlight with BigBlueButton on this system?"
+    say "Your FQDN match that of the BigBlueButton server to be used, are you willing to install Greenlight with BigBlueButton on this system?"
     err "$bbb_detected_err."
   fi
 
@@ -158,13 +182,13 @@ check_env() {
     # Conflict detection of existent nginx on the system not installed by this script (possible collision with other applications).
     if dpkg -s nginx 1> /dev/null 2>&1; then
       say "Nginx is already installed on this system by another mean, this deployment may impact your workload!"
-      err "Remove and cleanup nginx configurations on this system or kindly consider using a clean enviroment before proceeding."
+      err "Remove and cleanup nginx configurations on this system OR kindly consider using a clean enviroment before proceeding."
     fi
 
     # Conflict detection of required ports being already in use.
     if check_ports_listen "80|443|5050"; then
       say "Some required ports are already in use by another application!"
-      err "Make sure to clear out the required ports (TCP 80, 443, 5050) if possible or kindly consider using a clean enviroment before proceeding."
+      err "Make sure to clear out the required ports (TCP 80, 443, 5050) if possible OR kindly consider using a clean enviroment before proceeding."
     fi
   fi
 
@@ -307,7 +331,7 @@ check_host() {
     DIG_IP=$(dig +short "$1" | grep '^[.0-9]*$' | tail -n1)
     if [ -z "$DIG_IP" ]; then err "Unable to resolve $1 to an IP address using DNS lookup.";  fi
     get_IP "$1"
-    if [ "$DIG_IP" != "$IP" ]; then err "DNS lookup for $1 resolved to $DIG_IP but didn't match this system $IP."; fi
+    if [ "$DIG_IP" != "$IP" ]; then err "DNS lookup for $1 resolved to $DIG_IP but didn't match this system IP $IP."; fi
 }
 
 # This function will install the latest official version of greenlight-v3 and set it as the hosting Bigbluebutton default frontend or update greenlight-v3 if installed.
@@ -398,22 +422,67 @@ install_greenlight_v3(){
   say "starting greenlight-v3..."
   docker-compose -f $GL3_DIR/docker-compose.yml up -d
   sleep 5
-  say "greenlight-v3 is ready, You can VISIT: http://$HOST/ !"
+  say "greenlight-v3 is ready, You can VISIT: https://$HOST/ !"
   return 0;
 }
 
 install_ssl() {
+  # Assertions
+  if [ -n "$PROVIDED_CERTIFICATE" ]; then
+    if [ ! -f /local/certs/fullchain.pem ] || [ ! -f /local/certs/privkey.pem ]; then
+      err "Unable to find your provided certificate files in /local/certs, Have you placed the full chain and private key for your certificate as expected?"
+    fi
+  else
+    err "Auto generationg SSL certs feature will become available on the next increment."
+  fi
+
   need_pkg nginx
 
   mkdir -p $ACCESS_LOG_DEST $NGINX_FILES_DEST $ASSETS_DEST
 
   if [ ! -f /etc/nginx/sites-available/greenlight ]; then
-          cat <<HERE > /etc/nginx/sites-available/greenlight
+    # SSL enabled
+    mkdir -p /etc/nginx/ssl "/etc/letsencrypt/live/$HOST"
+
+    if [ -n "$PROVIDED_CERTIFICATE" ]; then
+        ln -s /local/certs/fullchain.pem "/etc/letsencrypt/live/$HOST/fullchain.pem" && say "fullchain.pem found and placed"
+        ln -s /local/certs/privkey.pem "/etc/letsencrypt/live/$HOST/privkey.pem" && say "privkey.pem found and placed"
+    else
+      # Auto generate a standalone SSL x509 certificate publicly signed by Let's encrypt for this domain $HOST.
+      err "Auto generationg SSL certs feature will become available on the next increment."
+    fi
+
+    if [ ! -f /etc/nginx/ssl/dhp-4096.pem ]; then
+      openssl dhparam -dsaparam  -out /etc/nginx/ssl/dhp-4096.pem 4096
+    fi
+
+      cat <<HERE > /etc/nginx/sites-available/greenlight
 server_tokens off;
+
 server {
   listen 80;
   listen [::]:80;
   server_name $HOST;
+  
+  return 301 https://\$server_name\$request_uri; #redirect HTTP to HTTPS
+
+}
+
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+  server_name $HOST;
+
+  ssl_certificate /etc/letsencrypt/live/$HOST/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/$HOST/privkey.pem;
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 10m;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+  ssl_dhparam /etc/nginx/ssl/dhp-4096.pem;
+    
+  # HSTS (comment out to enable)
+  #add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
   access_log  $ACCESS_LOG_DEST/greenlight.access.log;
 
@@ -437,7 +506,7 @@ HERE
     rm -v /etc/nginx/sites-enabled/default
   fi
 
-  systemctl reload nginx
+  systemctl restart nginx
 }
 
 # Given a container name as $1, this function will check if there's a match for that name in the list of running docker containers on the system.
