@@ -178,7 +178,7 @@ check_env() {
   fi
 
   # Possible conflicts on setup.
-  if [ ! -d "$GL3_DIR" ]; then
+  if [ ! -f /etc/nginx/sites-enabled/greenlight ]; then
     # Conflict detection of existent nginx on the system not installed by this script (possible collision with other applications).
     if dpkg -s nginx 1> /dev/null 2>&1; then
       say "Nginx is already installed on this system by another mean, this deployment may impact your workload!"
@@ -427,36 +427,91 @@ install_greenlight_v3(){
 }
 
 install_ssl() {
+  # Already installed.
+  if [ -f /etc/nginx/sites-available/greenlight ]; then
+    # Upgrade logic goes here.
+    return 0
+  fi
+
+  # Fresh installation.
   # Assertions
+  if [ -d "/etc/letsencrypt/live/$HOST" ]; then
+    err "Unable to generate certificates for $HOST, /etc/letsencrypt/live/$HOST/ already exists."
+  fi
+
   if [ -n "$PROVIDED_CERTIFICATE" ]; then
     if [ ! -f /local/certs/fullchain.pem ] || [ ! -f /local/certs/privkey.pem ]; then
       err "Unable to find your provided certificate files in /local/certs, Have you placed the full chain and private key for your certificate as expected?"
     fi
   else
-    err "Auto generationg SSL certs feature will become available on the next increment."
+    need_pkg certbot
   fi
 
   need_pkg nginx
+  mkdir -p /etc/nginx/ssl $ACCESS_LOG_DEST $NGINX_FILES_DEST $ASSETS_DEST
 
-  mkdir -p $ACCESS_LOG_DEST $NGINX_FILES_DEST $ASSETS_DEST
+  # HTTP only
+  cat <<HERE > /etc/nginx/sites-available/greenlight
+server_tokens off;
+server {
+  listen 80;
+  listen [::]:80;
+  server_name $HOST;
 
-  if [ ! -f /etc/nginx/sites-available/greenlight ]; then
-    # SSL enabled
-    mkdir -p /etc/nginx/ssl "/etc/letsencrypt/live/$HOST"
+  access_log  $ACCESS_LOG_DEST/greenlight.access.log;
 
-    if [ -n "$PROVIDED_CERTIFICATE" ]; then
-        ln -s /local/certs/fullchain.pem "/etc/letsencrypt/live/$HOST/fullchain.pem" && say "fullchain.pem found and placed"
-        ln -s /local/certs/privkey.pem "/etc/letsencrypt/live/$HOST/privkey.pem" && say "privkey.pem found and placed"
-    else
-      # Auto generate a standalone SSL x509 certificate publicly signed by Let's encrypt for this domain $HOST.
-      err "Auto generationg SSL certs feature will become available on the next increment."
+  # Greenlight landing page.
+  location / {
+    root   $ASSETS_DEST;
+    try_files \$uri @bbb-fe;
+  }
+
+  include $NGINX_FILES_DEST/*.nginx;
+}
+
+HERE
+
+  if [ ! -f /etc/nginx/sites-enabled/greenlight ]; then
+    ln -s /etc/nginx/sites-available/greenlight /etc/nginx/sites-enabled/greenlight
+  fi
+
+  if [ -f /etc/nginx/sites-enabled/default ]; then
+    rm -v /etc/nginx/sites-enabled/default
+  fi
+
+  nginx -qs reload || err "Unable to configure nginx - if following the official guides then please contact the maintainers."
+
+# Enabling HTTPS.
+  cp -v /etc/nginx/sites-available/greenlight /etc/nginx/sites-available/greenlight.http # Preserve used HTTP config for admins.
+
+  if [ -n "$PROVIDED_CERTIFICATE" ]; then
+      mkdir -p "/etc/letsencrypt/live/$HOST" && say "Created $HOST live directory"
+      ln -s /local/certs/fullchain.pem "/etc/letsencrypt/live/$HOST/fullchain.pem" && say "fullchain.pem found and placed"
+      ln -s /local/certs/privkey.pem "/etc/letsencrypt/live/$HOST/privkey.pem" && say "privkey.pem found and placed"
+  else
+    # Auto generate a standalone SSL x509 certificate publicly signed by Let's encrypt for this domain $HOST.
+    say "Generating SSL certificates for $HOST..."
+    say "Rehearsal phase..."
+    if ! certbot --dry-run --email "$EMAIL" --agree-tos --rsa-key-size 4096 -w $ASSETS_DEST \
+          -d "$HOST" --deploy-hook "systemctl reload nginx" $LETS_ENCRYPT_OPTIONS certonly; then
+      err "Let's Encrypt SSL (dry-run) request for $HOST did not succeed - exiting"
     fi
-
-    if [ ! -f /etc/nginx/ssl/dhp-4096.pem ]; then
-      openssl dhparam -dsaparam  -out /etc/nginx/ssl/dhp-4096.pem 4096
+    say "Rehearsal passed, ready to issue production certificates!"
+    say "Issuing production certificates..."
+    if ! certbot --email "$EMAIL" --agree-tos --rsa-key-size 4096 -w $ASSETS_DEST \
+          -d "$HOST" --deploy-hook "systemctl reload nginx" $LETS_ENCRYPT_OPTIONS certonly; then
+      err "Let's Encrypt SSL request for $HOST did not succeed - exiting"
     fi
+    say "Production SSL certificates has been generated!"
+  fi
 
-      cat <<HERE > /etc/nginx/sites-available/greenlight
+  say "Configuring nginx with SSL enabled..."
+
+  if [ ! -f /etc/nginx/ssl/dhp-4096.pem ]; then
+    openssl dhparam -dsaparam  -out /etc/nginx/ssl/dhp-4096.pem 4096
+  fi
+
+  cat <<HERE > /etc/nginx/sites-available/greenlight
 server_tokens off;
 
 server {
@@ -496,17 +551,16 @@ server {
 }
 
 HERE
+
+  if ! nginx -qs reload; then
+    mv -v /etc/nginx/sites-available/greenlight /etc/nginx/sites-available/greenlight.https # Preserve used HTTPS config for admins.
+    cp -v /etc/nginx/sites-available/greenlight.http /etc/nginx/sites-available/greenlight # Preserve used HTTP config for admins while falling back to HTTP. 
+    nginx -qs reload
+
+    err "Unable to configure nginx with certificates - if following the official guides then please contact the maintainers."
   fi
 
-  if [ ! -f /etc/nginx/sites-enabled/greenlight ]; then
-    ln -s /etc/nginx/sites-available/greenlight /etc/nginx/sites-enabled/greenlight
-  fi
-
-  if [ -f /etc/nginx/sites-enabled/default ]; then
-    rm -v /etc/nginx/sites-enabled/default
-  fi
-
-  systemctl restart nginx
+  say "Nginx was configured successuflly with SSL enabled!"
 }
 
 # Given a container name as $1, this function will check if there's a match for that name in the list of running docker containers on the system.
